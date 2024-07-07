@@ -1,0 +1,314 @@
+1. Initialize Database with Seed Data
+
+
+from flask import Flask, jsonify, request
+from flask_sqlalchemy import SQLAlchemy
+import requests
+
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///transactions.db'
+db = SQLAlchemy(app)
+
+# Define the model for transactions
+class Transaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    product_title = db.Column(db.String(255))
+    description = db.Column(db.Text)
+    price = db.Column(db.Float)
+    date_of_sale = db.Column(db.Date)
+
+# Endpoint to fetch JSON data and initialize the database
+@app.route('/initialize-database', methods=['GET'])
+def initialize_database():
+    url = 'https://s3.amazonaws.com/roxiler.com/product_transaction.json'
+    response = requests.get(url)
+    data = response.json()
+
+    # Clear existing data in the table
+    db.drop_all()
+    db.create_all()
+
+    # Insert seed data into the database
+    for item in data:
+        transaction = Transaction(
+            product_title=item['product_title'],
+            description=item['description'],
+            price=float(item['price']),
+            date_of_sale=item['dateOfSale']
+        )
+        db.session.add(transaction)
+    db.session.commit()
+
+    return 'Database initialized successfully'
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+
+
+
+
+
+
+2: List All Transactions API with Search and Pagination
+
+
+
+@app.route('/transactions', methods=['GET'])
+def list_transactions():
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 10))
+    search_text = request.args.get('search_text', '')
+
+    transactions_query = Transaction.query
+
+    # Apply search filter if search_text is provided
+    if search_text:
+        transactions_query = transactions_query.filter(
+            (Transaction.product_title.ilike(f"%{search_text}%")) |
+            (Transaction.description.ilike(f"%{search_text}%")) |
+            (Transaction.price.ilike(f"%{search_text}%"))
+        )
+
+    transactions = transactions_query.paginate(page=page, per_page=per_page)
+
+    results = []
+    for transaction in transactions.items:
+        results.append({
+            'product_title': transaction.product_title,
+            'description': transaction.description,
+            'price': transaction.price,
+            'date_of_sale': transaction.date_of_sale.strftime('%Y-%m-%d')
+        })
+
+    return jsonify({
+        'page': transactions.page,
+        'per_page': transactions.per_page,
+        'total_pages': transactions.pages,
+        'total_records': transactions.total,
+        'results': results
+    })
+
+
+
+
+
+
+To implement the backend APIs as requested, let's break down the tasks and create endpoints using Python and Flask. Below is the step-by-step implementation for each API endpoint along with brief explanations.
+
+1. Initialize Database with Seed Data
+We'll fetch JSON data from the provided URL and store it in a database. For simplicity, I'll use SQLite and SQLAlchemy for database operations.
+
+python
+Copy code
+from flask import Flask, jsonify, request
+from flask_sqlalchemy import SQLAlchemy
+import requests
+
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///transactions.db'
+db = SQLAlchemy(app)
+
+# Define the model for transactions
+class Transaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    product_title = db.Column(db.String(255))
+    description = db.Column(db.Text)
+    price = db.Column(db.Float)
+    date_of_sale = db.Column(db.Date)
+
+# Endpoint to fetch JSON data and initialize the database
+@app.route('/initialize-database', methods=['GET'])
+def initialize_database():
+    url = 'https://s3.amazonaws.com/roxiler.com/product_transaction.json'
+    response = requests.get(url)
+    data = response.json()
+
+    # Clear existing data in the table
+    db.drop_all()
+    db.create_all()
+
+    # Insert seed data into the database
+    for item in data:
+        transaction = Transaction(
+            product_title=item['product_title'],
+            description=item['description'],
+            price=float(item['price']),
+            date_of_sale=item['dateOfSale']
+        )
+        db.session.add(transaction)
+    db.session.commit()
+
+    return 'Database initialized successfully'
+
+if __name__ == '__main__':
+    app.run(debug=True)
+2. List All Transactions API with Search and Pagination
+python
+Copy code
+@app.route('/transactions', methods=['GET'])
+def list_transactions():
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 10))
+    search_text = request.args.get('search_text', '')
+
+    transactions_query = Transaction.query
+
+    # Apply search filter if search_text is provided
+    if search_text:
+        transactions_query = transactions_query.filter(
+            (Transaction.product_title.ilike(f"%{search_text}%")) |
+            (Transaction.description.ilike(f"%{search_text}%")) |
+            (Transaction.price.ilike(f"%{search_text}%"))
+        )
+
+    transactions = transactions_query.paginate(page=page, per_page=per_page)
+
+    results = []
+    for transaction in transactions.items:
+        results.append({
+            'product_title': transaction.product_title,
+            'description': transaction.description,
+            'price': transaction.price,
+            'date_of_sale': transaction.date_of_sale.strftime('%Y-%m-%d')
+        })
+
+    return jsonify({
+        'page': transactions.page,
+        'per_page': transactions.per_page,
+        'total_pages': transactions.pages,
+        'total_records': transactions.total,
+        'results': results
+    })
+
+
+
+
+
+
+3. Statistics API for Total Sale Amount, Sold Items, and Not Sold Items
+
+
+
+from sqlalchemy import func
+
+@app.route('/statistics', methods=['GET'])
+def get_statistics():
+    month = request.args.get('month')
+
+    total_sale_amount = db.session.query(func.sum(Transaction.price)).filter(
+        db.func.strftime('%m', Transaction.date_of_sale) == month
+    ).scalar()
+
+    total_sold_items = db.session.query(func.count(Transaction.id)).filter(
+        db.func.strftime('%m', Transaction.date_of_sale) == month
+    ).scalar()
+
+    total_not_sold_items = db.session.query(func.count(Transaction.id)).filter(
+        (db.func.strftime('%m', Transaction.date_of_sale) == month) &
+        (Transaction.price == 0)
+    ).scalar()
+
+    return jsonify({
+        'total_sale_amount': total_sale_amount,
+        'total_sold_items': total_sold_items,
+        'total_not_sold_items': total_not_sold_items
+    })
+
+
+
+
+
+
+
+4. Bar Chart API for Price Range Distribution
+
+
+
+
+
+
+@app.route('/bar-chart', methods=['GET'])
+def get_price_range_chart():
+    month = request.args.get('month')
+
+    price_ranges = [
+        (0, 100), (101, 200), (201, 300), (301, 400), (401, 500),
+        (501, 600), (601, 700), (701, 800), (801, 900), (901, None)
+    ]
+    results = []
+
+    for price_range in price_ranges:
+        min_price, max_price = price_range
+        count = db.session.query(func.count(Transaction.id)).filter(
+            (db.func.strftime('%m', Transaction.date_of_sale) == month) &
+            (Transaction.price >= min_price) &
+            (Transaction.price <= max_price if max_price else True)
+        ).scalar()
+
+        results.append({
+            'price_range': f'{min_price} - {max_price if max_price else "above"}',
+            'count': count
+        })
+
+    return jsonify(results)
+
+
+
+
+
+
+
+5. Pie Chart API for Category Distribution
+
+
+
+@app.route('/pie-chart', methods=['GET'])
+def get_category_distribution():
+    month = request.args.get('month')
+
+    categories_query = db.session.query(Transaction.product_title, func.count(Transaction.id)).filter(
+        db.func.strftime('%m', Transaction.date_of_sale) == month
+    ).group_by(Transaction.product_title).all()
+
+    results = []
+    for category in categories_query:
+        results.append({
+            'category': category[0],
+            'count': category[1]
+        })
+
+    return jsonify(results)
+
+
+
+
+
+6. Combined API Endpoint
+
+
+
+
+@app.route('/combined-data', methods=['GET'])
+def get_combined_data():
+    month = request.args.get('month')
+
+    transactions = list_transactions()
+    statistics = get_statistics()
+    bar_chart = get_price_range_chart()
+    pie_chart = get_category_distribution()
+
+    combined_data = {
+        'transactions': transactions.json,
+        'statistics': statistics.json,
+        'bar_chart': bar_chart.json,
+        'pie_chart': pie_chart.json
+    }
+
+    return jsonify(combined_data)
+
+
+
+
